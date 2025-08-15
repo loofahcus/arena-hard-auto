@@ -2,6 +2,7 @@ import pandas as pd
 import argparse
 import os
 import torch
+import json
 from glob import glob
 from tqdm import tqdm
 
@@ -94,6 +95,173 @@ def format_confidence_interval(mean_scores, lower_scores, upper_scores, baseline
         )
     
     return _leaderboard.sort_values(by="Scores (%)", ascending=False).reset_index(drop=True)
+
+
+def output_leaderboard_jsonl(battles, category, output_file=None):
+    """Output leaderboard data as JSONL format"""
+    baseline = JUDGE_SETTINGS[category]["baseline"]
+    
+    _battles = battles.drop(columns=['category'])[['model', 'scores']]
+    
+    # remove model path
+    _battles['model'] = _battles['model'].map(lambda x: x.split('/')[-1])
+    
+    bootstraps = pd.concat([
+        _battles.groupby("model").sample(frac=1.0, replace=True).groupby("model").mean()
+        for _ in tqdm(range(100))
+    ])
+    
+    bootstraps["scores"] = bootstraps["scores"].astype(float)
+    
+    mean_scores = bootstraps.groupby("model").mean().reset_index()
+    lower_scores = bootstraps.groupby("model").quantile(0.05).reset_index().rename(columns={"scores": "lower"})
+    upper_scores = bootstraps.groupby("model").quantile(0.95).reset_index().rename(columns={"scores": "upper"})
+    
+    _leaderboard = format_confidence_interval(mean_scores, lower_scores, upper_scores, baseline)
+    
+    # Convert to JSONL format
+    jsonl_data = []
+    for _, row in _leaderboard.iterrows():
+        jsonl_entry = {
+            "model": row["Model"],
+            "score": row["Scores (%)"],
+            "confidence_interval": row["CI (%)"],
+            "category": category
+        }
+        jsonl_data.append(jsonl_entry)
+    
+    # Output to file or stdout
+    if output_file:
+        with open(output_file, 'w') as f:
+            for entry in jsonl_data:
+                f.write(json.dumps(entry) + '\n')
+        print(f"Leaderboard saved to {output_file}")
+    else:
+        for entry in jsonl_data:
+            print(json.dumps(entry))
+
+
+def output_leaderboard_with_style_features_jsonl(battles, benchmark, category, control_features, output_file=None):
+    """Output leaderboard with style features as JSONL format"""
+    style_metadata = get_model_style_metadata(benchmark)
+    
+    model_features = battles.apply(lambda row:
+        style_metadata[row['model']][row['uid']],
+        axis=1
+    ).tolist()
+    baseline_features = battles.apply(
+        lambda row: style_metadata[JUDGE_SETTINGS[row['category']]["baseline"]][row['uid']],
+        axis=1
+    ).tolist()
+    
+    # remove model path
+    battles['model'] = battles['model'].map(lambda x: x.split('/')[-1])
+    
+    model_feature_tensor = torch.tensor([
+        [v if isinstance(v, int) else sum(v.values()) for k, v in metadata.items()]
+        for metadata in model_features
+    ], dtype=torch.float32)
+
+    baseline_feature_tensor = torch.tensor([
+        [v if isinstance(v, int) else sum(v.values()) for k, v in metadata.items()]
+        for metadata in baseline_features
+    ], dtype=torch.float32)
+    
+    final_feature_tensor = torch.zeros_like(model_feature_tensor)
+    final_feature_tensor[:, 0] = (
+        model_feature_tensor[:, 0] - baseline_feature_tensor[:, 0]
+    ) / (
+        model_feature_tensor[:, 0] + baseline_feature_tensor[:, 0]
+    )
+    
+    model_md_density = model_feature_tensor[:, 1:] / (model_feature_tensor[:, :1] + 1)
+    baseline_md_density = baseline_feature_tensor[:, 1:] / (baseline_feature_tensor[:, :1] + 1)
+    
+    assert not model_md_density.isnan().any()
+    assert not baseline_md_density.isnan().any()
+    
+    final_feature_tensor[:, 1:] = (
+        model_md_density - baseline_md_density
+    ) / (
+        model_md_density + baseline_md_density + 1
+    )
+    
+    assert not final_feature_tensor.isnan().any()
+    
+    normalized_feature_tensor = (
+        final_feature_tensor - torch.mean(final_feature_tensor, axis=0)
+    ) / torch.std(
+        final_feature_tensor, axis=0
+    )
+    
+    assert not normalized_feature_tensor.isnan().any()
+    
+    outcomes = torch.tensor(battles.scores.tolist())
+    
+    assert not outcomes.isnan().any()
+    
+    model_features, unique_models = one_hot_encode(
+        battles.model.tolist(),
+        baseline=JUDGE_SETTINGS[category]["baseline"]
+    )
+    all_features = torch.cat([model_features, normalized_feature_tensor], dim=1)
+    
+    assert not all_features.isnan().any()
+    
+    if "length" in control_features and "markdown" in control_features:
+        num_features = 4
+    elif "length" in control_features:
+        all_features = all_features[:, :1]
+        num_features = 1
+    elif "markdown" in control_features:
+        all_features = all_features[:, 1:]
+        num_features = 3
+    else:
+        assert False, "Invalid control features"
+        
+    coefs, _ = bootstrap_pairwise_model(all_features, outcomes, loss_type="bt")
+    
+    _coefs = coefs[:, :-num_features]
+    
+    table = pd.DataFrame(
+        columns=unique_models,
+        data=to_winrate_probabilities(
+            _coefs,
+            unique_models,
+            baseline_model=JUDGE_SETTINGS[category]["baseline"]
+        ).tolist()
+    )
+    
+    _leaderboard = format_confidence_interval(
+        table.quantile(0.5).to_frame("scores").reset_index().rename(columns={"index": "model"}),
+        table.quantile(0.05).to_frame("lower").reset_index().rename(columns={"index": "model"}),
+        table.quantile(0.95).to_frame("upper").reset_index().rename(columns={"index": "model"}),
+    )
+
+    # Convert to JSONL format
+    jsonl_data = []
+    feature_coefs = torch.quantile(coefs[:, -num_features:], 0.5, axis=0).tolist()
+    
+    for _, row in _leaderboard.iterrows():
+        jsonl_entry = {
+            "model": row["Model"],
+            "score": row["Scores (%)"],
+            "confidence_interval": row["CI (%)"],
+            "category": category,
+            "control_features": control_features,
+            "feature_coefficients": feature_coefs
+        }
+        jsonl_data.append(jsonl_entry)
+    
+    # Output to file or stdout
+    if output_file:
+        with open(output_file, 'w') as f:
+            for entry in jsonl_data:
+                f.write(json.dumps(entry) + '\n')
+        print(f"Leaderboard with style features saved to {output_file}")
+    else:
+        for entry in jsonl_data:
+            print(json.dumps(entry))
 
 
 def print_leaderboard(battles, category):
@@ -228,6 +396,7 @@ if __name__ == "__main__":
     parser.add_argument("--judge-names", "-j", nargs="+", default=["gpt-4.1"])
     parser.add_argument("--control-features", "-f", nargs="+", default=[])
     parser.add_argument("--category", "-c", nargs="+", default=['hard_prompt'])
+    parser.add_argument("--output-jsonl", "-o", type=str, help="Output leaderboard as JSONL to specified file (use '-' for stdout)")
     args = parser.parse_args()
     
     battles = load_judgments(args.judge_names, args.benchmark)
@@ -237,16 +406,31 @@ if __name__ == "__main__":
         
         battles = battles[battles.category == category].reset_index(drop=True)
         
-        if args.control_features:
-            print(f"INFO: Control features: {args.control_features}")
+        if args.output_jsonl:
+            output_file = None if args.output_jsonl == '-' else args.output_jsonl
             
-            print_leaderboard_with_style_features(
-                battles, 
-                args.benchmark, 
-                category,
-                args.control_features
-            )
-                
+            if args.control_features:
+                print(f"INFO: Control features: {args.control_features}")
+                output_leaderboard_with_style_features_jsonl(
+                    battles,
+                    args.benchmark,
+                    category,
+                    args.control_features,
+                    output_file
+                )
+            else:
+                output_leaderboard_jsonl(battles, category, output_file)
         else:
-            print_leaderboard(battles, category)
+            if args.control_features:
+                print(f"INFO: Control features: {args.control_features}")
+                
+                print_leaderboard_with_style_features(
+                    battles,
+                    args.benchmark,
+                    category,
+                    args.control_features
+                )
+                    
+            else:
+                print_leaderboard(battles, category)
         
