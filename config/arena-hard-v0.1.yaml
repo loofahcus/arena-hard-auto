@@ -1,4 +1,4 @@
-judge_model: gpt-4.1
+judge_model: gpt-4-1106-preview
 
 bench_name: arena-hard-v0.1
 
