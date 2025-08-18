@@ -95,6 +95,11 @@ if __name__ == "__main__":
     if args.bench_name:
         config["bench_name"] = args.bench_name
         print(f"Overriding bench_name to: {args.bench_name}")
+    
+    # Validate bench_name
+    valid_bench_names = ["arena-hard-v2.0", "arena-hard-v0.1"]
+    if config["bench_name"] not in valid_bench_names:
+        raise ValueError(f"Invalid bench_name: {config['bench_name']}. Must be one of: {valid_bench_names}")
 
     existing_answer = load_model_answers(os.path.join("data", config["bench_name"], "model_answer"))
     
