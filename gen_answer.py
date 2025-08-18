@@ -83,10 +83,18 @@ if __name__ == "__main__":
     parser.add_argument(
         "--endpoint-file", type=str, default="config/api_config.yaml"
     )
+    parser.add_argument(
+        "--bench-name", type=str, help="Override the bench_name from config file"
+    )
     args = parser.parse_args()
 
     config = make_config(args.config_file)
     endpoints = make_config(args.endpoint_file)
+    
+    # Override bench_name if provided via CLI
+    if args.bench_name:
+        config["bench_name"] = args.bench_name
+        print(f"Overriding bench_name to: {args.bench_name}")
 
     existing_answer = load_model_answers(os.path.join("data", config["bench_name"], "model_answer"))
     
