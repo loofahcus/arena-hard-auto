@@ -56,7 +56,7 @@ def load_model_answers(answer_dir: str):
     The return value is a python dict of type:
     Dict[model_name: str -> Dict[uid: int -> answer: dict]]
     """
-    filenames = glob(os.path.join(answer_dir, "*.jsonl"), recursive=True)
+    filenames = glob(os.path.join(answer_dir, "*.jsonl"))
     filenames.sort()
     model_answers = {}
 
@@ -66,7 +66,6 @@ def load_model_answers(answer_dir: str):
         with open(filename) as fin:
             for line in fin:
                 line = json.loads(line)
-                model_name = line.get("model", model_name)
                 answer[line["uid"]] = line
         model_answers[model_name] = answer
 
@@ -79,7 +78,7 @@ def load_id_to_model_answers(answer_dir: str):
     The return value is a python dict of type:
     Dict[model_name: str -> Dict[uid: int -> answer: dict]]
     """
-    filenames = glob(os.path.join(answer_dir, "*.jsonl"), recursive=True)
+    filenames = glob(os.path.join(answer_dir, "*.jsonl"))
     filenames.sort()
     model_answers = {}
 
@@ -89,7 +88,7 @@ def load_id_to_model_answers(answer_dir: str):
         with open(filename) as fin:
             for line in fin:
                 line = json.loads(line)
-                model_name = line.get("model", model_name)
+                
                 if line["uid"] in model_answers:
                     model_answers[line["uid"]][model_name] = line
                 else:
