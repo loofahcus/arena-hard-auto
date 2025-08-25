@@ -140,8 +140,11 @@ def chat_completion_openai(model, messages, temperature, max_tokens, api_dict=No
                 temperature=temperature,
                 max_tokens=max_tokens,
                 )
-            if completion.choices[0].finish_reason == 'content_filter':
-                content = ""
+            if completion.choices[0].finish_reason == 'content_filter' or \
+                completion.choices[0].message.content is API_ERROR_OUTPUT:
+                print(f"ERROR : no model output\n\n" \
+                      "{completion.choices[0]}")
+                break
             else:
                 content = completion.choices[0].message.content
             output = {
