@@ -395,7 +395,7 @@ if __name__ == "__main__":
     parser.add_argument("--benchmark", "-b", type=str, default="arena-hard-v2.0")
     parser.add_argument("--judge-names", "-j", nargs="+", default=["gpt-4.1"])
     parser.add_argument("--control-features", "-f", nargs="+", default=[])
-    parser.add_argument("--category", "-c", nargs="+", default=['hard_prompt'], choices=['hard_prompt', 'creative_writing', 'arena-hard-v0.1'])
+    parser.add_argument("--category", "-c", nargs="+", default=['hard_prompt'], choices=['hard_prompt', 'creative_writing', 'arena-hard-v0.1', 'general'])
     parser.add_argument("--output-jsonl", "-o", type=str, help="Output leaderboard as JSONL to specified file (use '-' for stdout)")
     args = parser.parse_args()
     

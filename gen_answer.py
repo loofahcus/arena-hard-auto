@@ -97,7 +97,7 @@ if __name__ == "__main__":
         print(f"Overriding bench_name to: {args.bench_name}")
     
     # Validate bench_name
-    valid_bench_names = ["arena-hard-v2.0", "arena-hard-v0.1"]
+    valid_bench_names = ["arena-hard-v2.0", "arena-hard-v0.1", "autoeval"]
     if config["bench_name"] not in valid_bench_names:
         raise ValueError(f"Invalid bench_name: {config['bench_name']}. Must be one of: {valid_bench_names}")
 
