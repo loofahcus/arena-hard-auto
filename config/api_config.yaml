@@ -52,6 +52,13 @@ claude-3-5-sonnet-20241022:
     api_type: anthropic
     parallel: 32
 
+o3-mini-2025-01-31:
+    model: o3-mini-2025-01-31
+    endpoints: null
+    reasoning_effort: medium
+    api_type: openai_thinking
+    parallel: 32
+
 o3-mini-2025-01-31-high:
     model: o3-mini-2025-01-31
     endpoints: null
